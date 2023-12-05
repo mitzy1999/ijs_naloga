@@ -1,0 +1,10 @@
+train test split 30 - 70 %
+CV 10 fold
+LOOCV - maybe?
+bootstrap - sampling
+na algoritmih v pythonu, orange, weka
+regresija -> dodati nove mere
+
+oceniti varianco ocen -> ocena stabilnosti (repeted cv, za druge metode isto)
+
+

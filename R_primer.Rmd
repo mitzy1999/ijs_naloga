@@ -1,0 +1,116 @@
+---
+title: "R_primer"
+output: html_document
+date: "2023-11-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mlr3)
+library(mlr3learners)
+library(mlr3pipelines)
+library(mlr3tuning)
+library(data.table)
+library(future)
+library(future.apply)
+library(neuralnet)
+library(kknn)
+```
+
+
+```{r}
+data <- read.csv("data60.csv", header = TRUE)
+```
+
+
+```{r}
+data[data == "?"] <- NA
+data <- as.data.frame(lapply(data, as.numeric))
+data <- na.omit(data)
+
+n_targets <- 33
+target_cols <- colnames(data[,(ncol(data) - n_targets + 1):ncol(data)])
+data$target <- rowSums(data[,target_cols])
+data <- data[,!(colnames(data) %in% target_cols)]
+data <- data[sample(1:nrow(data), size = 10000, replace = FALSE),]
+```
+
+
+
+```{r}
+
+task <- TaskRegr$new(id="data_task", data, target = "target")
+split <- partition(task, ratio = 0.8)
+train_task <- TaskRegr$new(id="train_task", data[split$train,], target = "target")
+test_task <- TaskRegr$new(id="test_task", data[split$test,], target = "target")
+
+gr <- po("scale") %>>% 
+  lrn("regr.kknn")
+
+grl = GraphLearner$new(gr)
+
+tuner_params <- ParamSet$new(
+  list(
+    ParamInt$new("regr.kknn.k", lower = 1, upper = 20),
+    ParamInt$new("regr.kknn.distance", lower = 1, upper = 2),
+    ParamFct$new("regr.kknn.kernel", levels = c("rectangular", "gaussian"))
+  )
+)
+
+
+design <- expand.grid(regr.kknn.k = seq(1, 20, 2),
+                      regr.kknn.distance = c(1, 2),
+                      regr.kknn.kernel = c("rectangular", "gaussian"))
+
+design = data.table(regr.kknn.k = design$regr.kknn.k,
+                    regr.kknn.distance = design$regr.kknn.distance,
+                    regr.kknn.kernel = as.character(design$regr.kknn.kernel))
+
+
+tuner = tnr("design_points", design = design)
+
+instance = ti(
+  task = train_task,
+  learner = grl,
+  resampling = rsmp("cv", folds = 5),
+  measures = msr("regr.rmse"),
+  terminator = trm("none"),
+  search_space = tuner_params
+)
+
+
+plan(multisession, workers = 5)
+set.seed(42, "L'Ecuyer-CMRG")
+tuner$optimize(instance)
+plan(sequential)
+
+```
+
+
+
+```{r}
+neuralnet(formula = target ~ ., 
+          data = data[split$train,], 
+          hidden = c(100, 50, 25), 
+          rep = 100,
+          linear.output = TRUE) -> model
+```
+
+```{r}
+
+pred <- predict(model, newdata = data[split$test,])
+
+sqrt(mean((pred - data[split$test,"target"])^2))
+
+```
+
+
+```{r}
+plot(model)
+```
+
+
+
+
+
+

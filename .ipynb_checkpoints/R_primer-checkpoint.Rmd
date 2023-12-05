@@ -1,0 +1,139 @@
+---
+title: "R_primer"
+output: html_document
+date: "2023-11-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mlr3)
+library(mlr3learners)
+library(mlr3pipelines)
+library(mlr3tuning)
+
+
+library(tidymodels)
+library(caret)
+library(ggplot2)
+```
+
+
+```{r}
+data <- read.csv("data60.csv", header = TRUE)
+```
+
+```{r}
+data <- as.data.frame(lapply(data, as.numeric))
+data <- na.omit(data) # Droping missing data -> Implement mice imputation
+dim(data)
+```
+
+```{r}
+n_targets <- 33
+target_cols <- colnames(data[,(ncol(data) - n_targets + 1):ncol(data)])
+data$target <- rowSums(data[,target_cols])
+data <- data[,!(colnames(data) %in% target_cols)]
+```
+
+
+```{r}
+# Split the data into training and testing sets
+set.seed(123)  # Set seed for reproducibility
+data_split <- initial_split(data, prop = 0.7)
+data_train <- training(data_split)
+data_test <- testing(data_split)
+
+data_recipe <- recipe(target ~ ., data = data_train) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+
+# Specify the KNN model
+knn_model <- nearest_neighbor(weight_func = "rectangular") %>%
+  set_engine("kknn") %>%
+  set_mode("regression")
+
+# Create a workflow
+knn_workflow <- workflow() %>%
+  add_recipe(data_recipe) %>%
+  add_model(knn_model)
+
+# Perform cross-validated tuning
+knn_results <- fit(knn_workflow, data_train)
+
+
+
+
+```
+
+
+```{r}
+pred_test <- predict(knn_results, data_test)
+```
+
+
+```{r}
+sqrt(mean((data_test$target - pred_test$.pred)^2))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##############################################################3
+
+```{r}
+n_targets <- 33
+target_cols <- colnames(data[,(ncol(data) - n_targets + 1):ncol(data)])
+data$target <- rowSums(data[,target_cols])
+data <- data[,!(colnames(data) %in% target_cols)]
+dim(data)
+```
+
+
+
+```{r}
+po_scale <- po("scale")
+learner_po = po("learner", learner = lrn("regr.kknn", k = to_tune(1, 10)))
+graph = po_scale %>>% learner_po
+glrn = GraphLearner$new(graph)
+
+task <- as_task_regr(data, target = "target")
+train_test_split <- partition(task, ratio = 0.8)
+
+tnr_grid_search = tnr("grid_search", resolution = 5, batch_size = 5)
+resampling <- rsmp("cv", folds = 5)
+train_task <- TaskRegr$new("train_task", backend = data[train_test_split$train,], target = "target")
+
+
+result <- tune(tuner = tnr_grid_search,
+               learner = glrn, 
+               task = train_task, 
+               resampling = resampling, 
+               measure = msr("regr.rmse"))
+
+
+glrn$train(task = task, row_ids = train_test_split$train)
+
+pred_test <- glrn$predict(task, row_ids = train_test_split$test)
+
+pred_test$score(msr("regr.rmse"))
+
+pred_train <- glrn$predict(task, row_ids = train_test_split$train)
+
+pred_train$score(msr("regr.rmse"))
+
+```
+
+
+
